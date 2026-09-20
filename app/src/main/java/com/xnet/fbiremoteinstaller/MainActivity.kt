@@ -270,6 +270,11 @@ class MainActivity : Activity() {
         var lastErr: String? = null
         val attempts = config.retries.coerceAtLeast(1)
         repeat(attempts) { idx ->
+            if (Thread.currentThread().isInterrupted) {
+                appendLogFile(session.logFile, "URL_PUSH_CANCELLED Interrupted")
+                addLog("⚠ URL push cancelled.")
+                return
+            }
             val result = pushUrlsOnce(config.targetIp, session.payload, config.connectTimeoutSeconds, config.ackWaitSeconds)
             if (result.delivered) {
                 val status = if (result.acked) "URL_PUSH delivered ACK" else "URL_PUSH delivered NO_ACK"
@@ -279,7 +284,14 @@ class MainActivity : Activity() {
             }
             lastErr = result.error
             if (idx < attempts - 1) {
-                Thread.sleep((config.retryDelaySeconds * 1000.0).toLong().coerceAtLeast(100L))
+                try {
+                    Thread.sleep((config.retryDelaySeconds * 1000.0).toLong().coerceAtLeast(100L))
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    appendLogFile(session.logFile, "URL_PUSH_CANCELLED Interrupted")
+                    addLog("⚠ URL push cancelled.")
+                    return
+                }
             }
         }
         appendLogFile(session.logFile, "URL_PUSH_FAIL $lastErr")
