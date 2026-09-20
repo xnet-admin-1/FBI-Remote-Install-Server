@@ -11,6 +11,8 @@ This repository now contains an Android Kotlin implementation of the original Py
 - Supports no-send and copy-only startup behavior.
 - Stores recent 3DS IP history.
 - Detects host IPv4 and allows manual override.
+- Uses a Material 3 app theme with edge-to-edge content handling.
+- Includes an in-app file picker that imports supported files into app storage.
 - Writes timestamped logs under app internal storage (`logs/servefiles_log_*.txt`).
 - Provides resend and stop controls in-app.
 

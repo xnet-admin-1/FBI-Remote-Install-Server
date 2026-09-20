@@ -1,13 +1,19 @@
 package com.xnet.fbiremoteinstaller
 
-import android.app.Activity
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.BufferedReader
@@ -36,7 +42,7 @@ private const val DEFAULT_HOST_PORT = 8080
 private const val FBI_URL_RECEIVER_PORT = 5000
 private val ACCEPTED_EXT = setOf("cia", "tik", "cetk", "3dsx")
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val io = Executors.newCachedThreadPool()
     private val running = AtomicBoolean(false)
@@ -53,6 +59,7 @@ class MainActivity : Activity() {
     private lateinit var chunkKbInput: EditText
     private lateinit var noSendCheck: CheckBox
     private lateinit var copyOnlyCheck: CheckBox
+    private lateinit var pickFileButton: Button
     private lateinit var startButton: Button
     private lateinit var resendButton: Button
     private lateinit var stopButton: Button
@@ -62,10 +69,25 @@ class MainActivity : Activity() {
     private var serverSocket: ServerSocket? = null
     private var currentConfig: ServerConfig? = null
     private var currentSession: SessionData? = null
+    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) {
+            addLog("File picker cancelled.")
+            return@registerForActivityResult
+        }
+        try {
+            val localFile = copyPickedFileToAppStorage(uri)
+            targetPathInput.setText(localFile.absolutePath)
+            addLog("Selected file: ${localFile.name}")
+        } catch (e: Exception) {
+            addLog("Failed to load selected file: ${e.message}")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+        applyEdgeToEdgeInsets()
 
         targetPathInput = findViewById(R.id.targetPathInput)
         threeDsIpInput = findViewById(R.id.threeDsIpInput)
@@ -78,6 +100,7 @@ class MainActivity : Activity() {
         chunkKbInput = findViewById(R.id.chunkKbInput)
         noSendCheck = findViewById(R.id.noSendCheck)
         copyOnlyCheck = findViewById(R.id.copyOnlyCheck)
+        pickFileButton = findViewById(R.id.pickFileButton)
         startButton = findViewById(R.id.startButton)
         resendButton = findViewById(R.id.resendButton)
         stopButton = findViewById(R.id.stopButton)
@@ -88,6 +111,7 @@ class MainActivity : Activity() {
         hostIpInput.setText(detectHostIp() ?: "")
         updateRecentIps()
 
+        pickFileButton.setOnClickListener { filePickerLauncher.launch(arrayOf("*/*")) }
         startButton.setOnClickListener { startServer() }
         resendButton.setOnClickListener { resendUrls() }
         stopButton.setOnClickListener { stopServer() }
@@ -337,6 +361,50 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences("ip_history", MODE_PRIVATE)
         val value = prefs.getString("ips", "") ?: ""
         return value.split('|').map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    private fun applyEdgeToEdgeInsets() {
+        val root = findViewById<android.view.View>(R.id.rootContainer)
+        val baseLeft = root.paddingLeft
+        val baseTop = root.paddingTop
+        val baseRight = root.paddingRight
+        val baseBottom = root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                baseLeft + systemBars.left,
+                baseTop + systemBars.top,
+                baseRight + systemBars.right,
+                baseBottom + systemBars.bottom
+            )
+            insets
+        }
+    }
+
+    private fun copyPickedFileToAppStorage(uri: Uri): File {
+        val fileName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                } else {
+                    null
+                }
+            }
+            ?.takeIf { it.isNotBlank() }
+            ?: "picked_file_${System.currentTimeMillis()}"
+        val extension = fileName.substringAfterLast('.', "")
+        if (extension.lowercase(Locale.US) !in ACCEPTED_EXT) {
+            throw IllegalArgumentException("Unsupported file extension. Supported: $ACCEPTED_EXT")
+        }
+
+        val destinationDir = File(filesDir, "picked_files").apply { mkdirs() }
+        val destinationFile = File(destinationDir, fileName)
+        contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(destinationFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: throw IllegalStateException("Unable to read selected file.")
+        return destinationFile
     }
 
     private fun saveIpHistory(ip: String) {
