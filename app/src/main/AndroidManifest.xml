@@ -6,7 +6,7 @@
         android:allowBackup="true"
         android:label="FBI Remote Installer"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.FBIRemoteInstaller">
         <activity
             android:name=".MainActivity"
             android:exported="true">
