@@ -1,0 +1,55 @@
+name: Build and Release Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Prepare release metadata
+        id: release_meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "name=Debug APK ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            TAG="debug-${GITHUB_RUN_NUMBER}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "name=Debug APK ${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          name: ${{ steps.release_meta.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          files: app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: true
+          prerelease: true
